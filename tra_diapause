@@ -1,0 +1,374 @@
+setwd("C:/example/directory")#set working directory, find your working directory by typing "getwd()" in console
+###packages
+install.packages("tidyverse")
+install.packages("ggpattern")                               
+library("ggpattern")     
+library(emmeans)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(tidyverse)
+library(ggrepel)
+library(ggpubr)
+library(rstatix)
+###Load data
+Data <- read.table("DiapTraData.txt", header = TRUE)
+Data2 <- read.table("DiapTraData2.txt", header = TRUE)#this dataset includes total counts of GFP+Control
+Data <- na.omit(Data) #remove NA's
+Data2 <-na.omit(Data2)
+##############++++++++++++++++++++++++++++++++++
+##############+ Survival/ avg lifespan
+##############++++++++++++++++++++++++++++++++++
+lsdat <- read.table("LifespanData.txt", header = TRUE)
+lsdat$Treatment <- factor(lsdat$Treatment, levels = c('Control','GFP','40','400','1200'))
+meanls <- lsdat %>% group_by(Treatment) %>%  dplyr::summarise(mean= mean(ls),se = sd(ls)/sqrt(n()))
+nls <- lsdat%>%group_by(Treatment) %>% dplyr::summarise(N=n())
+
+#Exploratory visualization lifespan of all treatments
+lsplot <- lsdat %>% 
+  ggplot(
+    aes(x = Treatment, y = ls, fill = Treatment))+
+  geom_boxplot(position="dodge") + xlab("Treatment") +
+  ylab("Average lifspan of mothers (Days)") + ggtitle("Average lifespan of emerged mothers") +
+  geom_jitter(color="black", width = 0.3,size=0.5, alpha=0.9)
+plot(lsplot)
+
+###now look lifespan of succesful and unsuccesful
+lsdat2 <- filter(lsdat,Treatment == '40'|Treatment == '400'|Treatment == '1200') #remove control & GFP
+lsdat3 <- filter(lsdat2,has_offspring == 'yes') #remove mothers that did not produce offspring
+nls2 <- lsdat2%>%group_by(Treatment, succes) %>% dplyr::summarise(N=n())
+
+
+#plot showing succes rates 
+relsucces <- read.table("relative_succes_trainj.txt", header = TRUE)
+relsucces$Treatment <- factor(relsucces$Treatment, levels = c('40','400','1200'))
+ytitle <- expression(paste(italic("tra"), "-positive mothers (%)"))
+xtitle <-expression(paste(italic("tra"), " dsRNA concentration (ng/μL)"))
+trapos <- expression(paste(italic("tra"),"KD+"))
+traneg <- expression(paste(italic("tra"),"KD-"))
+stackplot <- relsucces %>%
+  ggplot(
+    aes(x = Treatment, y = relsucces, fill=succes))+
+  geom_col(position="stack") + xlab(xtitle) +
+  ylab(ytitle) + 
+  ggtitle("Succesrate tra-positive mothers") +ylim(0,100) + scale_fill_discrete(name = "", labels = c(traneg, trapos))
+plot(stackplot)
+
+###Plot with lifespan of tra-treatments for both trapositive and tranegative mothers
+lsplot2 <- lsdat3 %>% 
+  ggplot(
+    aes(x = Treatment, y = ls, fill = Treatment, color = succes))+
+  xlab(xtitle) + geom_boxplot(outlier.colour=NA, position=position_dodge(width=0.8)) + 
+  geom_point(position=position_jitterdodge(dodge.width=0.9),size=0.8)+ 
+  scale_color_manual(values = c("darkslategrey","black"),name="", label = c(traneg,trapos)) + scale_fill_discrete(name = "",labels = c(tra40,tra400,tra12))+
+  ylab("Average lifspan of mothers (Days)") + ggtitle("Average lifespan of emerged mothers")
+plot(lsplot2) #ok
+
+#exploratory visualization of the nr. of mothers that was alive over time
+Nperday <- Data %>% dplyr::group_by(Day, Treatment) %>% dplyr::summarise(cnt = n())
+Nperday$Treatment<-factor(Nperday$Treatment, levels = c('40','400','1200')) 
+Nperday$Day<-factor(Nperday$Day, levels = c('1','3','7','10','14')) 
+thisplot <- Nperday %>% 
+  ggplot(
+    aes(x = Day, y = cnt, fill = Treatment))+
+  geom_col(position="dodge", width = 0.5, color= "black") + xlab("Day of oviposition") +
+  ylab("Mothers alive (#)") + ggtitle("mothers alive over time") + 
+  theme(legend.position = "bottom") + scale_fill_discrete(name="Transformer concentration (ng/μL)") +
+  scale_x_discrete(limits = c("1", "3", "7", "10", "14")) 
+
+plot(thisplot)
+
+##############++++++++++++++++++++++++++++++++++
+##############+ DIPLOID MALES ONLY IN TRA TREATMENTS
+##############++++++++++++++++++++++++++++++++++
+##plot diploid males
+Data2$Day<-factor(Data2$Day, levels = c('14','10','7','3','1')) 
+Data2$Treatment <- factor(Data2$Treatment, levels = c('Control','GFP','40','400','1200'))
+tra40 <- expression(paste(italic("tra"),"40"))
+tra400 <-expression(paste(italic("tra"),"400"))
+tra12 <- expression(paste(italic("tra"),"1200"))
+
+barplot6 <- Data2 %>% 
+  ggplot(
+    aes(x = Treatment, y = M2N, fill = Treatment))+
+  geom_col(position="stack") + xlab("Treatment") +
+  ylab("Total diploid male offspring (#)") + ggtitle("Total diploid male offspring") +
+  scale_fill_manual(name = "",values = c("black","darkgrey","#F8766D","#00BA38","#619CFF"),labels = c('Control', "GFP", tra40,tra400,tra12))
+  
+plot(barplot6)#include N #consider facet wrap with a relative offspring
+
+##############++++++++++++++++++++++++++++++++++
+##############+ DIAPAUSE
+##############++++++++++++++++++++++++++++++++++
+Data$Treatment <- as.character(Data$Treatment)
+Data$Day <- as.character(Data$Day)
+Data$Diapause <- as.numeric(Data$Diapause)
+
+##########++++++++++++++++++++
+##########+RELATIVE DIAPAUSE
+##########++++++++++++++++++++
+#calculate relative diapause
+DiaDat <- Data %>%
+  group_by(Treatment, Day) %>%
+  dplyr::reframe(reldia = (Diapause/Total)*100)
+DiaDat <- na.omit(DiaDat) #remove NAs
+#DiaDat <- filter(DiaDat, reldia != 0)
+DiaDat <- DiaDat %>%
+  group_by(Treatment,Day) %>%
+  dplyr::summarise(mean = mean(reldia), se = sd(reldia)/sqrt(n())) #calculate mean and se
+
+DiaDat <- DiaDat %>% ungroup(Treatment,Day)#ungroup so I can add stuff
+DiaDat$Treatment<-factor(DiaDat$Treatment, levels = c('40','400','1200')) 
+#add rows with empty D10 data so it looks nice
+DiaDat <- DiaDat %>% 
+  add_row(as.factor(Treatment) = 400, Day = 10, mean = 0, se = NA)
+DiaDat <- DiaDat %>% 
+  add_row(as.factor(Treatment) = 1200, Day = 10, mean = 0, se = NA)
+DiaDat <- DiaDat %>% group_by(Treatment,Day) #group again
+
+#order treatment
+DiaDat$Treatment<-factor(DiaDat$Treatment, levels = c('40','400','1200')) 
+DiaDat$Day <-factor(DiaDat$Day, levels = c('1','3','7','10','14'))
+#DiaDat<-DiaDat[-4,] #remove tra40 day10 for graph
+#plot relative diapause
+barplot7 <- DiaDat %>% 
+  ggplot(
+    aes(x = Day, y = mean, fill = Treatment)) + facet_wrap(~Treatment)+
+  geom_col(position="dodge", width = 0.5, color= "black") + xlab("Age of female (dpm)") +
+  ylab("Mean diapausing offspring per female (%)") + ggtitle("Relative diapausing offspring") + 
+  scale_fill_discrete(name='Treatment', labels = c(tra40,tra400,tra12)) +
+  scale_x_discrete(limits = c("1", "3", "7", "10", "14")) +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),position = position_dodge(width = 0.5), width = 0.2) +
+  ylim(0,100)
+plot(barplot7)
+#############################+++
+#############################+ next visualization
+#############################+++
+#visualize 
+Data$Treatment<-factor(Data$Treatment, levels = c('40','400','1200')) 
+Data$Day <-factor(Data$Day, levels = c('1','3','7','10','14'))
+Datax<-filter(Data, Total !=0)
+Dataz <- Datax %>%
+  group_by(Treatment, Day) %>%
+  dplyr::summarise(reldia = (Diapause/Total)*100)
+Dataz <- ungroup(Dataz)
+Dataz<-Dataz[-19,]#omit tra40 day10 outlier
+Dataz<-na.omit(Dataz)#omit NAs (basicly omit Day 10 and 14)
+#Dataz<- filter(Dataz, reldia != 0)#remove traKD+ mothers that are alive but not producing diapausing offspring
+vis <- Dataz %>% 
+  ggplot(
+    aes(x =Treatment, y = reldia, fill = Treatment, color = Treatment))+ scale_color_manual(values = c("brown","darkgreen","darkblue"))+
+  facet_wrap(~Day)+
+  xlab(xtitle) + geom_boxplot(outlier.colour=NA, position=position_dodge(width=0.9)) + 
+  geom_point(position=position_jitterdodge(dodge.width=0.9),size = 1.5)+ 
+  ylab("Diapausing offspring per female (%)") + ggtitle("diapause")+ ylim(0,100) +
+  scale_fill_discrete(name="Treatment", labels = c(tra40,tra400,tra12))
+plot(vis) #ok
+
+
+ ###STATS
+############################+
+##########++++++++++++++++++++
+##########+RELATIVE DIAPAUSE2 #####this is graph including GFP+Control, also removed tra40d10
+##########++++++++++++++++++++
+#calculate relative diapause
+DiaDat1 <- Data2 %>%
+  group_by(Treatment, Day) %>%
+  dplyr::summarise(reldia = (Diapause/Total)*100)
+DiaDat1 <- na.omit(DiaDat1) #remove NAs
+DiaDat1 <- filter(DiaDat1, reldia != 0)
+DiaDat <- DiaDat1 %>%
+  group_by(Treatment,Day) %>%
+  dplyr::summarise(mean = mean(reldia), se = sd(reldia)/sqrt(n())) #calculate mean and se
+
+DiaDat <- DiaDat %>% ungroup(Treatment,Day)#ungroup so I can add stuff
+#add rows with empty D10 data so it looks nice
+DiaDat <- DiaDat %>% 
+  add_row(Treatment = '400', Day = '10', mean = 0, se = NA)
+DiaDat <- DiaDat %>% 
+  add_row(Treatment = '1200', Day = '10', mean = 0, se = NA)
+DiaDat <- DiaDat %>% group_by(Treatment,Day) #group again
+
+#order treatment
+DiaDat$Treatment<-factor(DiaDat$Treatment, levels = c('Control','GFP','40','400','1200')) 
+DiaDat$Day <-factor(DiaDat$Day, levels = c('1','3','7','10','14'))
+DiaDat<-DiaDat[-11,] #remove tra40 day10 for graph
+
+#filter for control+gfp
+DiaDat3<- filter(DiaDat, Treatment == 'Control'|Treatment == 'GFP')
+#filter for tra treatments
+DiaDat4<- filter(DiaDat, Treatment == '40'|Treatment == '400'|Treatment == '1200')
+
+#plot relative diapause control+GFP
+barplot8 <- DiaDat3 %>% 
+  ggplot(
+    aes(x = Day, y = mean, fill = Treatment)) + facet_wrap(~Treatment)+
+  geom_col(position="dodge", width = 0.5, color= "black") + xlab("Age of mother (dpm)") +
+  ylab("Mean diapausing offspring per female (%)") + ggtitle("Relative diapausing offspring") + 
+  scale_fill_discrete(name="Treatment", labels = c('Control','GFP')) +
+  scale_x_discrete(limits = c("1", "3", "7", "10", "14")) +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),position = position_dodge(width = 0.5), width = 0.2) +
+  ylim(0,100)
+plot(barplot8)
+############################+
+#plot relative diapause tra ### same plot as before but now tra40Day10 is removed
+barplot9 <- DiaDat4 %>% 
+  ggplot(
+    aes(x = Day, y = mean, fill = Treatment)) + facet_wrap(~Treatment)+
+  geom_col(position="dodge", width = 0.5, color= "black") + xlab("Age of mother (dpm)") +
+  ylab("Mean diapausing offspring per female (%)") + ggtitle("Relative diapausing offspring") + 
+  scale_fill_discrete(name="Treatment", labels = c(tra40,tra400,tra12)) +
+  scale_x_discrete(limits = c("1", "3", "7", "10", "14")) +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),position = position_dodge(width = 0.5), width = 0.2) +
+  ylim(0,100)
+plot(barplot9)
+############################+
+############################+
+############################+
+###########################################++++++
+###########################################+
+###########################################+
+###########################################+  Diapause stats
+###########################################+
+###########################################+
+###########################################++++++
+##########+++++++++++++++++++
+##########+++++++++++++++++++
+#split by day and then test every single Day 
+#filterdat<-filter(Data,Diapause != 0)
+filterdat<- Data
+filterdat <- filterdat %>%
+  group_by(Treatment, Day) %>% ##load and prep data
+  dplyr::reframe(reldia = (Diapause/Total)*100)
+Day1<- filterdat[filterdat$Day %in% c('1'),]
+qqnorm(log(Day1$reldia+1), pch = 1, frame = FALSE)
+qqline(log(Day1$reldia+1), col = "steelblue", lwd = 2)
+Day3<- filterdat[filterdat$Day %in% c('3'),]
+qqnorm(log(Day3$reldia+1), pch = 1, frame = FALSE)
+qqline(log(Day3$reldia+1), col = "steelblue", lwd = 2)
+Day7<- filterdat[filterdat$Day %in% c('7'),]
+qqnorm(log(Day7$reldia+1), pch = 1, frame = FALSE)
+qqline(log(Day7$reldia+1), col = "steelblue", lwd = 2)
+#data not normal
+
+kruskal.test(reldia~Treatment, data=Day1)
+kruskal.test(reldia~Treatment, data=Day3)# significant
+kruskal.test(reldia~Treatment, data=Day7)
+dunn_test(reldia~Treatment, data=Day3)#post-hoc for day 3
+
+#############+++++++++++++++++++++++++++++++++++
+#############+ DIPLOID MALES
+#############+++++++++++++++++++++++++++++++++++
+Data$Treatment <- as.character(Data$Treatment)
+Data$Day <- as.character(Data$Day)
+Data$M2N <- as.numeric(Data$M2N)
+
+#calculate mean and se and add them to dataset
+mean_df2 <- Data %>% 
+  group_by(Treatment, Day) %>% 
+  dplyr::summarise(mean= mean(M2N),se = sd(M2N)/sqrt(n()))
+
+#Get the individual groups in the right order
+mean_df2$Treatment<-factor(mean_df2$Treatment, levels = c('40','400','1200')) 
+
+##plot diploid males
+barplot2 <- mean_df2 %>% 
+  ggplot(
+    aes(x = Day, y = mean, fill = Treatment))+
+  geom_col(position="dodge", width = 0.5, color = 'black') + xlab("Day of oviposition") +
+  ylab("Mean diploid male offspring") + ggtitle("Diploid male offspring") + 
+  theme(legend.position = "bottom") + scale_fill_discrete(name="Transformer concentration (ng/μL)") +
+  scale_x_discrete(limits = c("1", "3", "7", "10", "14")) +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),position = position_dodge(width = 0.5), width = 0.2)
+
+plot(barplot2) #exploratory visualization which I do not use
+##############++++++++++++++++++++++++++++++++++
+##############+Diploid males different graph, also not used
+##############++++++++++++++++++++++++++++++++++
+#prep stats
+stat.test <- summary(model6) %>% add_xy_position(fun = "mean_sd", x = "dose")
+mean_df2$Day<-factor(mean_df2$Day, levels = c('1','3','7','10','14')) 
+
+barplot3 <- mean_df2 %>% 
+  ggplot(
+    aes(x = Treatment, y = mean, color = , fill = Treatment, group = interaction(Day,Treatment))) +
+  geom_col(position="dodge", width = 0.5, color = "black") + xlab("Transformer concentration (ng/μL)") +
+  ylab("Mean diploid male offspring") + ggtitle("Diploid male offspring2") + scale_fill_discrete(name="Treatment") +
+  geom_errorbar(aes(ymin = mean-se, ymax = mean+se),position = position_dodge(width = 0.5), width = 0.2) +
+  geom_text(position = position_dodge(width= 0.55), aes(y=-0.4, label = Day),size = 2) 
+
+plot(barplot3)#dont use it
+
+##############++++++++++++++++++++++++++++++++++
+##############HAPLOID/DIPLOID RATIOS
+##############++++++++++++++++++++++++++++++++++
+plodat <- read.table("PloidyData.txt", header = TRUE)
+plodat$Treatment <- factor(plodat$Treatment, levels = c('tra40','tra400','tra1200'))
+
+barplot4 <- plodat %>% 
+  ggplot(
+    aes(x = Status, y = perc, fill=Ploidy))+ facet_wrap(~Treatment)+
+  geom_col(position="stack") +
+  ylab("1N/2N male offspring (%)") + 
+  ggtitle("Haploid/Diploid male offspring in tra+ mothers non-diapause") +
+  scale_fill_discrete(labels = c("1N","2N")) + ylim(0,100)+xlab(NULL) +theme(axis.text.x=element_text(angle = -30, hjust = 0))
+plot(barplot4)
+##############################################+
+##############################################+
+#######STATS HAPLODIPLOID RATIOS
+##############################################+
+##############################################+
+#first make a contingency table for each treatment. Then test each treatment
+####Tra40
+ploidy_t40<- plodat[plodat$Treatment %in% c('tra40'),] #select treatments
+dat_t40 <- data.frame(
+  "2N" = c(167, 23),
+  "1N" = c(191,25),
+  row.names = c("Non-diapause", "Diapause"),
+  stringsAsFactors = FALSE
+)
+colnames(dat_t40) <- c("2N", "1N")#contingency table
+chisq.test(dat_t40)
+####Tra400
+ploidy_t400<- plodat[plodat$Treatment %in% c('tra400'),]
+dat_t400 <- data.frame(
+  "2N" = c(361, 23),
+  "1N" = c(172,7),
+  row.names = c("Non-diapause", "Diapause"),
+  stringsAsFactors = FALSE
+)
+colnames(dat_t400) <- c("2N", "1N")#contingency table
+chisq.test(dat_t400)
+####Tra1200
+ploidy_t1200<- plodat[plodat$Treatment %in% c('tra1200'),]
+dat_t1200 <- data.frame(
+  "2N" = c(351, 123),
+  "1N" = c(114,40),
+  row.names = c("Non-diapause", "Diapause"),
+  stringsAsFactors = FALSE
+)
+colnames(dat_t1200) <- c("2N", "1N")#contingency table
+chisq.test(dat_t1200)
+
+##############++++++++++++++++++++++++++++++++++
+##############Diapause termination survival rates
+##############++++++++++++++++++++++++++++++++++
+postdiap <- read.table("postdiap.txt", header = TRUE)
+
+postdiap$Treatment <- factor(postdiap$Treatment, levels = c('tra40','tra400', 'tra1200'))
+postdiap$trapos <- factor(postdiap$trapos, levels = c('y','n'))
+postdiappos <- filter(postdiap,trapos == 'y') #filter trapositive
+postdiap2 <- postdiappos %>% 
+  group_by(Treatment) %>% 
+  dplyr::summarise(postdiappos,survival = (succesrec/totalrec)*100)#calculate survival rate
+postdiap2 <- na.omit(postdiap2) #omit NA
+tot <- aggregate(succesrec ~ Treatment, data = postdiap2, sum) #calculate total survivors
+group_mean <- aggregate(survival ~ Treatment, data = postdiap2, mean)# calculate mean survival rate for treatment
+
+plott <- group_mean %>% 
+  ggplot(
+    aes(x = Treatment, y = survival, fill = Treatment))+
+  geom_col(position="dodge") +theme(legend.position = "none") +ylim(0,100) + ylab("Diapause survival rate (%)")
+plot(plott)#survival plot
+####End
